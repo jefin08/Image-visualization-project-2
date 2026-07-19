@@ -22,6 +22,7 @@ class TracebackFilter:
 
 sys.stderr = TracebackFilter(sys.stderr)
 
+import numpy as np
 import cv2
 import time
 import mediapipe as mp
@@ -44,6 +45,7 @@ This app processes your webcam feed in real-time to detect face and hand landmar
 
 # Sidebar config
 st.sidebar.title("Configuration")
+app_mode = st.sidebar.selectbox("App Mode", ["Real-time Stream", "Snapshot Capture"])
 detection_confidence = st.sidebar.slider("Min Detection Confidence", 0.0, 1.0, 0.5, 0.05)
 tracking_confidence = st.sidebar.slider("Min Tracking Confidence", 0.0, 1.0, 0.5, 0.05)
 
@@ -166,21 +168,78 @@ def video_frame_callback(frame: av.VideoFrame) -> av.VideoFrame:
     
     return av.VideoFrame.from_ndarray(image, format="bgr24")
 
-# Start streaming
-ctx = webrtc_streamer(
-    key="landmarks",
-    video_frame_callback=video_frame_callback,
-    rtc_configuration=RTC_CONFIGURATION,
-    media_stream_constraints={
-        "video": {
-            "width": {"min": 1280, "ideal": 1920},
-            "height": {"min": 720, "ideal": 1080},
-            "frameRate": {"ideal": 30}
+if app_mode == "Real-time Stream":
+    # Start streaming
+    ctx = webrtc_streamer(
+        key="landmarks",
+        video_frame_callback=video_frame_callback,
+        rtc_configuration=RTC_CONFIGURATION,
+        media_stream_constraints={
+            "video": {
+                "width": {"min": 1280, "ideal": 1920},
+                "height": {"min": 720, "ideal": 1080},
+                "frameRate": {"ideal": 30}
+            },
+            "audio": False
         },
-        "audio": False
-    },
-    async_processing=True
-)
+        async_processing=True
+    )
+else:
+    # Use st.camera_input for snapshot capture mode (works natively on Streamlit Cloud)
+    img_file = st.camera_input("Take a photo to detect landmarks")
+    if img_file is not None:
+        # Convert file to numpy array
+        file_bytes = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR) # BGR
+        
+        # Retrieve the holistic model
+        model = get_model()
+        
+        # Converting BGR to RGB
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Process frame
+        rgb_image.flags.writeable = False
+        results = model.process(rgb_image)
+        rgb_image.flags.writeable = True
+        
+        # Drawing the Facial Landmarks
+        if CONFIG["show_face"] and results.face_landmarks:
+            mp_drawing.draw_landmarks(
+                image,
+                results.face_landmarks,
+                mp_holistic.FACEMESH_CONTOURS,
+                mp_drawing.DrawingSpec(
+                    color=(255, 0, 255),
+                    thickness=1,
+                    circle_radius=1
+                ),
+                mp_drawing.DrawingSpec(
+                    color=(0, 255, 255),
+                    thickness=1,
+                    circle_radius=1
+                )
+            )
+
+        if CONFIG["show_hands"]:
+            # Drawing Right hand Land Marks
+            if results.right_hand_landmarks:
+                mp_drawing.draw_landmarks(
+                    image, 
+                    results.right_hand_landmarks, 
+                    mp_holistic.HAND_CONNECTIONS
+                )
+
+            # Drawing Left hand Land Marks
+            if results.left_hand_landmarks:
+                mp_drawing.draw_landmarks(
+                    image, 
+                    results.left_hand_landmarks, 
+                    mp_holistic.HAND_CONNECTIONS
+                )
+        
+        # Display the processed image in high quality
+        st.image(image, channels="BGR", caption="Landmarks Detection Result", use_container_width=True)
 
 # Sidebar references documentation block
 st.sidebar.markdown("---")
