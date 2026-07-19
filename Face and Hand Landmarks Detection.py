@@ -5,6 +5,22 @@ os.environ['GLOG_minloglevel'] = '2'
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf')
 
+import asyncio
+def custom_exception_handler(loop, context):
+    exception = context.get('exception')
+    if isinstance(exception, AttributeError) and ("'NoneType' object has no attribute" in str(exception) or "call_exception_handler" in str(exception)):
+        return
+    try:
+        loop.default_exception_handler(context)
+    except Exception:
+        pass
+
+try:
+    loop = asyncio.get_event_loop()
+    loop.set_exception_handler(custom_exception_handler)
+except Exception:
+    pass
+
 import cv2
 import time
 import mediapipe as mp
