@@ -5,21 +5,22 @@ os.environ['GLOG_minloglevel'] = '2'
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf')
 
-import asyncio
-def custom_exception_handler(loop, context):
-    exception = context.get('exception')
-    if isinstance(exception, AttributeError) and ("'NoneType' object has no attribute" in str(exception) or "call_exception_handler" in str(exception)):
-        return
-    try:
-        loop.default_exception_handler(context)
-    except Exception:
-        pass
+# Silence WebRTC/aioice socket closing tracebacks from stderr
+import sys
+class TracebackFilter:
+    def __init__(self, original_stream):
+        self.original_stream = original_stream
 
-try:
-    loop = asyncio.get_event_loop()
-    loop.set_exception_handler(custom_exception_handler)
-except Exception:
-    pass
+    def write(self, data):
+        # Ignore lines from the stun retry/AttributeError loop
+        if any(msg in data for msg in ["Transaction.__retry", "send_stun", "sendto", "call_exception_handler", "stun.py", "ice.py", "selector_events.py"]):
+            return
+        self.original_stream.write(data)
+
+    def flush(self):
+        self.original_stream.flush()
+
+sys.stderr = TracebackFilter(sys.stderr)
 
 import cv2
 import time
